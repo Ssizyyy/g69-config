@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   backups: { write: invoke('backups:write'), list: invoke('backups:list'), read: invoke('backups:read'), open: invoke('backups:open') },
   config: { get: invoke('config:get'), set: invoke('config:set') },
+  setShortcuts: invoke('shortcuts:set'),
   autostart: { get: invoke('autostart:get'), set: invoke('autostart:set') },
   processes: invoke('processes:list'),
   pickExe: invoke('dialog:pickExe'),

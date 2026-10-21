@@ -19,6 +19,10 @@ export const BLOCKS = {
   dks: { read: 0x18, write: 0x28, size: 1024 },
 } as const
 
+/** LED bytes the keyboard applies but never reports back (reads return a stale ff ff ff / colour mode):
+ *  primary RGB, secondary RGB, colour mode. They can only be known from what we last wrote. */
+export const LED_WRITE_ONLY = [1, 2, 3, 5, 6, 7, 8]
+
 export type BlockName = keyof typeof BLOCKS
 export type WritableBlock = { [K in BlockName]: (typeof BLOCKS)[K] extends { write: number } ? K : never }[BlockName]
 

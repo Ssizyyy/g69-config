@@ -1,5 +1,5 @@
 // 16-byte LED block (read 0x13 / write 0x23), from driveall's getSendReportAll:
-// [0] effect (0 = off) [1..3] RGB [4]=0xFF [5..7] secondary RGB [8] colour mode (kept as read)
+// [0] effect (0 = off) [1..3] RGB [4]=0xFF [5..7] secondary RGB [8] colour mode (0 = single colour, 1 = rainbow)
 // [9] brightness 0-5 [10] speed 0-5 [11] direction [12] gear mode [14..15] = 0xAA 0x55 (added by the HID layer)
 
 export type Effect = { id: number; name: string; speed: boolean; direction: boolean; color: boolean }
@@ -29,10 +29,10 @@ export const EFFECTS: Effect[] = [
   fx(0x80, 'Custom (per-key)', false, false, false),
 ]
 
-export type Led = { effect: number; r: number; g: number; b: number; brightness: number; speed: number; direction: number }
+export type Led = { effect: number; r: number; g: number; b: number; brightness: number; speed: number; direction: number; rainbow: boolean }
 
 export function decodeLed(b: Uint8Array): Led {
-  return { effect: b[0], r: b[1], g: b[2], b: b[3], brightness: b[9], speed: b[10], direction: b[11] }
+  return { effect: b[0], r: b[1], g: b[2], b: b[3], brightness: b[9], speed: b[10], direction: b[11], rainbow: b[8] === 1 }
 }
 
 export function encodeLed(prev: Uint8Array, l: Led) {
@@ -41,6 +41,7 @@ export function encodeLed(prev: Uint8Array, l: Led) {
   out[1] = l.r
   out[2] = l.g
   out[3] = l.b
+  out[8] = l.rainbow ? 1 : 0
   out[9] = l.brightness
   out[10] = l.speed
   out[11] = l.direction

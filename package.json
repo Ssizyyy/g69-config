@@ -1,7 +1,7 @@
 {
   "name": "g69-config",
   "productName": "G69 Config",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Offline configurator for the Onikuma G69 keyboard",
   "main": "out/main/main.js",
@@ -9,7 +9,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "dist": "electron-vite build && electron-builder --win portable"
+    "dist": "electron-vite build && electron-builder --win"
   },
   "build": {
     "appId": "local.g69config",
@@ -31,11 +31,20 @@
       }
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "resources/icon.png"
     },
     "portable": {
       "artifactName": "G69-Config-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "G69-Config-Setup-${version}.exe"
     }
   },
   "dependencies": {

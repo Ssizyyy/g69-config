@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, protocol, session, shell, Tray } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, session, shell, Tray } from 'electron'
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
@@ -24,8 +24,9 @@ let tray: Tray | null = null
 let quitting = false
 
 // ---------- config ----------
-type Config = { rules: { exe: string; profile: string }[]; autoSwitch: boolean; dryRun: boolean; activeProfile?: string }
-const defaultConfig: Config = { rules: [], autoSwitch: true, dryRun: false }
+type Shortcut = { kind: 'combo'; accelerator: string; profile: string } | { kind: 'fn'; fnPos: number; fKey: string; prev: number[]; profile: string }
+type Config = { rules: { exe: string; profile: string }[]; shortcuts: Shortcut[]; autoSwitch: boolean; dryRun: boolean; activeProfile?: string }
+const defaultConfig: Config = { rules: [], shortcuts: [], autoSwitch: true, dryRun: false }
 function readConfig(): Config {
   try { return { ...defaultConfig, ...JSON.parse(readFileSync(configFile, 'utf8')) } } catch { return { ...defaultConfig } }
 }
@@ -47,7 +48,11 @@ ipcMain.handle('profiles:write', (_e, name: string, data: unknown) => {
 })
 ipcMain.handle('profiles:delete', (_e, name: string) => {
   rmSync(join(profilesDir, safeName(name) + '.json'), { force: true })
-  buildTrayMenu()
+  const c = readConfig()
+  c.rules = c.rules.filter((r) => r.profile !== name)
+  c.shortcuts = c.shortcuts.filter((s) => s.profile !== name)
+  writeConfig(c)
+  registerShortcuts(c.shortcuts)
 })
 ipcMain.handle('profiles:rename', (_e, from: string, to: string) => {
   const data = readFileSync(join(profilesDir, safeName(from) + '.json'), 'utf8')
@@ -55,8 +60,10 @@ ipcMain.handle('profiles:rename', (_e, from: string, to: string) => {
   rmSync(join(profilesDir, safeName(from) + '.json'), { force: true })
   const c = readConfig()
   c.rules = c.rules.map((r) => (r.profile === from ? { ...r, profile: to } : r))
+  c.shortcuts = c.shortcuts.map((s) => (s.profile === from ? { ...s, profile: to } : s))
   if (c.activeProfile === from) c.activeProfile = to
   writeConfig(c)
+  registerShortcuts(c.shortcuts)
 })
 ipcMain.handle('profiles:export', async (_e, name: string, data: unknown) => {
   const r = await dialog.showSaveDialog(win!, { defaultPath: safeName(name) + '.json', filters: [{ name: 'Profile', extensions: ['json'] }] })
@@ -82,6 +89,35 @@ ipcMain.handle('config:set', (_e, patch: Partial<Config>) => {
   const c = { ...readConfig(), ...patch }
   writeConfig(c)
   return c
+})
+
+// ---------- profile shortcuts ----------
+// Combos are Electron accelerators. FN shortcuts are caught as the spare key (F13-F24) the Fn-layer key emits.
+// A switch goes through the same renderer path as the tray menu.
+function registerShortcuts(list: Shortcut[]): string | null {
+  globalShortcut.unregisterAll()
+  for (const s of list) {
+    const accel = s.kind === 'combo' ? s.accelerator : s.fKey
+    let ok = false
+    try { ok = globalShortcut.register(accel, () => win?.webContents.send('tray:apply', s.profile)) } catch { /* invalid accelerator */ }
+    if (!ok) return `${accel} can't be registered — it is invalid or already used by the system or another app`
+  }
+  return null
+}
+ipcMain.handle('shortcuts:set', (_e, list: Shortcut[]) => {
+  const c = readConfig()
+  const dup = (xs: (string | number)[]) => new Set(xs).size !== xs.length
+  let err: string | null = null
+  if (dup(list.map((s) => (s.kind === 'combo' ? s.accelerator : s.fKey).toLowerCase()))) err = 'That shortcut is already used by another profile'
+  else if (dup(list.flatMap((s) => (s.kind === 'fn' ? [s.fnPos] : [])))) err = 'That Fn key is already bound to another profile'
+  else if (dup(list.map((s) => s.profile))) err = 'A profile can have only one shortcut'
+  else err = registerShortcuts(list)
+  if (err) {
+    registerShortcuts(c.shortcuts)
+    return { error: err }
+  }
+  writeConfig({ ...c, shortcuts: list })
+  return { config: readConfig() }
 })
 
 // ---------- autostart ----------
@@ -260,9 +296,11 @@ else {
     tray.on('click', showMain)
     buildTrayMenu()
     startForegroundWatcher()
+    registerShortcuts(readConfig().shortcuts)
   })
   app.on('before-quit', () => {
     quitting = true
+    globalShortcut.unregisterAll()
     fgProc?.kill()
   })
   app.on('window-all-closed', () => {})

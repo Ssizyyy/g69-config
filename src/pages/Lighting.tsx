@@ -8,6 +8,7 @@ import { useStore, writeBlocks } from '@/store'
 import { cn } from '@/lib/utils'
 
 const SWATCHES = ['#ff0000', '#ff8000', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#8000ff', '#ff00ff', '#ffffff']
+const RING = 'ring-2 ring-primary ring-offset-2 ring-offset-card'
 
 export default function Lighting() {
   const block = useStore((s) => s.snapshot?.led)
@@ -52,9 +53,15 @@ export default function Lighting() {
           <Label>Colour</Label>
           <div className={cn('flex flex-wrap items-center gap-2', fx && !fx.color && 'pointer-events-none opacity-40')}>
             {SWATCHES.map((c) => (
-              <button key={c} onClick={() => upd(fromHex(c))} className={cn('size-8 rounded-md border', toHex(led) === c ? 'ring-2 ring-primary ring-offset-2 ring-offset-card' : '')} style={{ background: c }} />
+              <button key={c} onClick={() => upd({ ...fromHex(c), rainbow: false })} className={cn('size-8 rounded-md border', !led.rainbow && toHex(led) === c && RING)} style={{ background: c }} />
             ))}
-            <input type="color" value={toHex(led)} onChange={(e) => upd(fromHex(e.target.value))} className="h-8 w-12 cursor-pointer rounded-md border bg-transparent" />
+            <button
+              title="Rainbow"
+              onClick={() => upd({ rainbow: true })}
+              className={cn('size-8 rounded-md border', led.rainbow && RING)}
+              style={{ background: 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)' }}
+            />
+            <input type="color" value={toHex(led)} onChange={(e) => upd({ ...fromHex(e.target.value), rainbow: false })} className="h-8 w-12 cursor-pointer rounded-md border bg-transparent" />
           </div>
           {fx && !fx.color && <p className="text-xs text-muted-foreground">This effect uses its own colours.</p>}
         </div>

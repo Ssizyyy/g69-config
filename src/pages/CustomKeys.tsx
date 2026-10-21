@@ -3,7 +3,7 @@ import { KeyboardView } from '@/components/KeyboardView'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { keyByPos } from '@/model/layout'
-import { PICKER, actionLabel, decodeKey, sameAction, withKey, type KeyAction } from '@/model/keys'
+import { LOCKED_FUNCS, PICKER, actionLabel, decodeKey, funcId, sameAction, withKey, type KeyAction } from '@/model/keys'
 import { useStore, writeBlocks } from '@/store'
 import { cn } from '@/lib/utils'
 
@@ -13,15 +13,21 @@ export default function CustomKeys() {
   const [group, setGroup] = useState(0)
   const block = useStore((s) => s.snapshot?.[layer])
   const busy = useStore((s) => !!s.busy)
+  const shortcuts = useStore((s) => s.config.shortcuts)
   if (!block) return null
 
   // A record equal to the key's stock code counts as unchanged.
+  const trigger = (pos: number) => (layer === 'fn' ? shortcuts.find((s) => s.kind === 'fn' && s.fnPos === pos) : undefined)
   const label = (pos: number) => {
+    const t = trigger(pos)
+    if (t) return `→ ${t.profile}`
     const a = decodeKey(block, pos)
     if (a.type === 'key' && !a.mods && a.hid === keyByPos.get(pos)?.hid && layer === 'keys') return null
     return actionLabel(a)
   }
   const current = sel != null ? decodeKey(block, sel) : null
+  const profileKey = sel != null ? trigger(sel) : undefined
+  const locked = !!profileKey || (!!current && LOCKED_FUNCS.has(funcId(current)))
 
   const assign = (a: KeyAction) => {
     if (sel == null) return
@@ -60,7 +66,7 @@ export default function CustomKeys() {
               <span className="text-muted-foreground"> {layer === 'fn' ? '(Fn layer)' : ''} — currently </span>
               <span className="font-medium text-primary">{label(sel) ?? 'default'}</span>
             </div>
-            <Button variant="outline" size="sm" disabled={busy || current.type === 'default'} onClick={() => assign({ type: 'default' })}>
+            <Button variant="outline" size="sm" disabled={busy || locked || current.type === 'default'} onClick={() => assign({ type: 'default' })}>
               Reset to default
             </Button>
           </div>
@@ -82,17 +88,29 @@ export default function CustomKeys() {
                 variant={sameAction(it.action, current) ? 'default' : 'secondary'}
                 size="sm"
                 className="min-w-12"
-                disabled={busy}
+                disabled={busy || locked}
                 onClick={() => assign(it.action)}
               >
                 {it.label}
               </Button>
             ))}
           </div>
-          {current.type === 'other' && (
+          {profileKey ? (
             <p className="text-xs text-muted-foreground">
-              This key holds an advanced function ({label(sel)}). Assigning a new action replaces it; edit advanced keys in the original configurator.
+              Fn + this key switches to profile "{profileKey.profile}". Change or clear it in Profiles → Shortcut.
             </p>
+          ) : locked ? (
+            <p className="text-xs text-muted-foreground">
+              This key switches the keyboard to {label(sel)}. The firmware always restores it, so it can't be remapped.
+            </p>
+          ) : funcId(current) >= 0 ? (
+            <p className="text-xs text-muted-foreground">This key runs a built-in keyboard function ({label(sel)}). Assigning a new action replaces it.</p>
+          ) : (
+            current.type === 'other' && (
+              <p className="text-xs text-muted-foreground">
+                This key holds an advanced function ({label(sel)}). Assigning a new action replaces it; edit advanced keys in the original configurator.
+              </p>
+            )
           )}
         </div>
       )}

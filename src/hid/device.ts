@@ -1,4 +1,4 @@
-import { ALLOWED_CMDS, BLOCKS, CMD_COMMIT, PID, PROFILE_BLOCKS, USAGE_PAGE, VID, chunkPackets, hex, type BlockName, type WritableBlock } from './protocol'
+import { ALLOWED_CMDS, BLOCKS, CMD_COMMIT, LED_WRITE_ONLY, PID, PROFILE_BLOCKS, USAGE_PAGE, VID, chunkPackets, hex, type BlockName, type WritableBlock } from './protocol'
 
 export type Snapshot = Partial<Record<BlockName, Uint8Array>>
 export type LogEntry = { t: number; dir: 'out' | 'in' | 'dry' | 'err'; text: string }
@@ -13,7 +13,7 @@ const withLedMarkers = (d: Uint8Array) => {
   o[15] = 0x55
   return o
 }
-const VERIFY_SKIP: Partial<Record<WritableBlock, Set<number>>> = { led: new Set([4, 14, 15]) }
+const VERIFY_SKIP: Partial<Record<WritableBlock, Set<number>>> = { led: new Set([4, 14, 15, ...LED_WRITE_ONLY]) }
 
 /** Single connection to the G69 over WebHID. All transfers are serialised. */
 class G69 {
