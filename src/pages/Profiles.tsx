@@ -1,13 +1,33 @@
 import { useEffect, useState } from 'react'
-import { Check, Download, Pencil, Trash2, Upload } from 'lucide-react'
+import { Check, Download, Keyboard, Pencil, Trash2, Upload } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { api, applyProfile, refreshProfiles, saveProfile, setConfig, useStore } from '@/store'
+import { KeyboardView } from '@/components/KeyboardView'
+import { keyByPos } from '@/model/layout'
+import { api, applyProfile, refreshProfiles, saveProfile, setConfig, setShortcut, useStore, type Shortcut } from '@/store'
+
+const CODES: Record<string, string> = {
+  Space: 'Space', Tab: 'Tab', Enter: 'Return', Escape: 'Esc', Backspace: 'Backspace', Delete: 'Delete', Insert: 'Insert', Home: 'Home', End: 'End',
+  PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+  Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'", Backquote: '`', Comma: ',', Period: '.', Slash: '/',
+}
+/** Electron accelerator for a keydown, or null while only modifiers are held / the key has no accelerator name. */
+function toAccelerator(e: React.KeyboardEvent) {
+  const m = /^Key([A-Z])$|^Digit(\d)$|^(F\d{1,2})$|^Numpad(\d)$/.exec(e.code)
+  const key = m ? (m[1] ?? m[2] ?? m[3] ?? `num${m[4]}`) : CODES[e.code]
+  if (!key) return null
+  const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean)
+  return { accel: [...mods, key].join('+'), bare: !mods.length && !/^F\d/.test(key) }
+}
+const describe = (s: Shortcut) => (s.kind === 'combo' ? s.accelerator : `Fn + ${keyByPos.get(s.fnPos)?.label}`)
 
 export default function Profiles() {
   const profiles = useStore((s) => s.profiles)
   const active = useStore((s) => s.config.activeProfile)
+  const shortcuts = useStore((s) => s.config.shortcuts)
+  const [sc, setSc] = useState<{ profile: string; mode: 'combo' | 'fn'; accel: string; fnPos: number | null; error: string } | null>(null)
   const connected = useStore((s) => s.connected && !!s.snapshot)
   const busy = useStore((s) => !!s.busy)
   const [backups, setBackups] = useState<string[]>([])
@@ -23,7 +43,19 @@ export default function Profiles() {
     else if (dialog?.from) await api.profiles.rename(dialog.from, n)
     await refreshProfiles()
     if (dialog?.mode === 'rename' && active === dialog.from) await setConfig({ activeProfile: n })
+    else if (dialog?.mode === 'rename') await setConfig({}) // pick up remapped rules/shortcuts
     setDialog(null)
+  }
+
+  const openShortcut = (profile: string) => {
+    const cur = shortcuts.find((s) => s.profile === profile)
+    setSc({ profile, mode: cur?.kind ?? 'combo', accel: cur?.kind === 'combo' ? cur.accelerator : '', fnPos: cur?.kind === 'fn' ? cur.fnPos : null, error: '' })
+  }
+  const saveShortcut = async (spec: Parameters<typeof setShortcut>[1]) => {
+    if (!sc) return
+    const error = await setShortcut(sc.profile, spec)
+    if (error) setSc({ ...sc, error })
+    else setSc(null)
   }
 
   return (
@@ -54,6 +86,12 @@ export default function Profiles() {
           <div key={p} className="flex items-center gap-3 px-4 py-3">
             <div className="flex w-5 justify-center">{p === active && <Check className="size-4 text-primary" />}</div>
             <div className="flex-1 font-medium">{p}</div>
+            {shortcuts.find((s) => s.profile === p) && (
+              <span className="rounded-md border px-2 py-0.5 font-mono text-xs text-muted-foreground">{describe(shortcuts.find((s) => s.profile === p)!)}</span>
+            )}
+            <Button size="icon" variant="ghost" title="Shortcut" onClick={() => openShortcut(p)}>
+              <Keyboard />
+            </Button>
             <Button size="sm" disabled={!connected || busy || p === active} onClick={() => applyProfile(p)}>
               Apply
             </Button>
@@ -68,7 +106,15 @@ export default function Profiles() {
               variant="ghost"
               title="Delete"
               disabled={p === 'Default' || p === active}
-              onClick={async () => confirm(`Delete profile "${p}"?`) && (await api.profiles.remove(p), refreshProfiles())}
+              onClick={async () => {
+                if (!confirm(`Delete profile "${p}"?`)) return
+                // Free its Fn key on the keyboard before the shortcut record disappears.
+                const err = shortcuts.some((s) => s.profile === p) && (await setShortcut(p, null))
+                if (err) return void toast.error(`Could not remove the shortcut: ${err}`)
+                await api.profiles.remove(p)
+                await refreshProfiles()
+                await setConfig({})
+              }}
             >
               <Trash2 />
             </Button>
@@ -102,6 +148,70 @@ export default function Profiles() {
           ))}
         </div>
       </div>
+
+      <Dialog open={!!sc} onOpenChange={(o) => !o && setSc(null)}>
+        <DialogContent className="sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Shortcut for "{sc?.profile}"</DialogTitle>
+          </DialogHeader>
+          {sc && (
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-2">
+                <Button size="sm" variant={sc.mode === 'combo' ? 'default' : 'secondary'} onClick={() => setSc({ ...sc, mode: 'combo', error: '' })}>
+                  Key combo
+                </Button>
+                <Button size="sm" variant={sc.mode === 'fn' ? 'default' : 'secondary'} onClick={() => setSc({ ...sc, mode: 'fn', error: '' })}>
+                  Fn + key
+                </Button>
+              </div>
+              {sc.mode === 'combo' ? (
+                <>
+                  <Input
+                    autoFocus
+                    readOnly
+                    value={sc.accel}
+                    placeholder="Click here and press the combo, e.g. Ctrl+Alt+1"
+                    onKeyDown={(e) => {
+                      e.preventDefault()
+                      const r = toAccelerator(e)
+                      if (!r) return
+                      setSc({ ...sc, accel: r.accel, error: r.bare ? 'Add a modifier (Ctrl, Alt, Shift) so it does not hijack normal typing' : '' })
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">Works system-wide while the app is running, including in the tray. One modifier set plus one key.</p>
+                </>
+              ) : (
+                <>
+                  <KeyboardView
+                    selected={new Set(sc.fnPos != null ? [sc.fnPos] : [])}
+                    onKey={(k) => setSc({ ...sc, fnPos: k.pos, error: '' })}
+                    sub={(k) => shortcuts.find((s) => s.kind === 'fn' && s.fnPos === k.pos)?.profile}
+                    marked={(k) => shortcuts.some((s) => s.kind === 'fn' && s.fnPos === k.pos)}
+                    disabled={(k) => k.label === 'Fn'}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Pick the key to press together with Fn. The keyboard handles Fn itself, so that Fn-layer key is rewritten to send a spare key (F13–F24) the app listens for. It overrides that key in every profile.
+                  </p>
+                </>
+              )}
+              {sc.error && <p className="text-sm text-destructive">{sc.error}</p>}
+            </div>
+          )}
+          <DialogFooter>
+            {shortcuts.some((s) => s.profile === sc?.profile) && (
+              <Button variant="outline" onClick={() => saveShortcut(null)}>
+                Clear
+              </Button>
+            )}
+            <Button
+              disabled={!sc || (sc.mode === 'combo' ? !sc.accel || !!sc.error : sc.fnPos == null)}
+              onClick={() => sc && saveShortcut(sc.mode === 'combo' ? { kind: 'combo', accelerator: sc.accel } : { kind: 'fn', fnPos: sc.fnPos! })}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!dialog} onOpenChange={(o) => !o && setDialog(null)}>
         <DialogContent>

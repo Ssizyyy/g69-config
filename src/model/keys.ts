@@ -4,7 +4,8 @@
 //   [2, mods, hid, 0]  keyboard key (mods = HID modifier bitmask)
 //   [3, lo, hi, 0]     consumer/media usage
 //   [1, kind, val, 0]  mouse: kind 1 = buttons bitmask, kind 3 = wheel (1 up / 255 down)
-//   7..13              macro / DKS / MT / TGL / SOCD / RS / combo (shown read-only here)
+//   7..12              macro / DKS / MT / TGL / SOCD / RS (shown read-only here)
+//   [13, id>>16, id>>8, id]  built-in firmware function (lighting, Win lock, OS mode…)
 
 export type KeyAction =
   | { type: 'default' }
@@ -104,7 +105,20 @@ for (const g of PICKER) for (const it of g.items) if (it.action.type === 'key' &
 const mediaNames = new Map<number, string>()
 for (const it of PICKER[3].items) if (it.action.type === 'media') mediaNames.set(it.action.usage, it.label)
 
-const OTHER_NAMES: Record<number, string> = { 7: 'Macro', 8: 'DKS', 9: 'Mod-Tap', 10: 'Toggle', 11: 'SOCD', 12: 'RS', 13: 'Combo' }
+const OTHER_NAMES: Record<number, string> = { 7: 'Macro', 8: 'DKS', 9: 'Mod-Tap', 10: 'Toggle', 11: 'SOCD', 12: 'RS' }
+
+// Type 13 = built-in firmware function (driveall's "type:1" list), 24-bit id in bytes 1..3 big-endian.
+const FUNC_NAMES: Record<number, string> = {
+  1: 'Reset', 6: 'F-row', 8: 'Win mode', 9: 'Mac mode', 11: 'Effect', 12: 'Color', 13: 'Bright+', 14: 'Bright-',
+  15: 'Speed+', 16: 'Speed-', 17: 'Light off', 22: 'Win lock', 75: 'Driver',
+}
+export const funcId = (a: KeyAction) => (a.type === 'other' && a.raw[0] === 13 ? (a.raw[1] << 16) | (a.raw[2] << 8) | a.raw[3] : -1)
+/** Fn functions the G69 firmware restores after every write (OS mode switches on Fn+S / Fn+A). */
+export const LOCKED_FUNCS = new Set([8, 9])
+
+/** Spare keys an Fn-layer profile shortcut emits (F13-F24, HID 104..115); caught by the app as a global shortcut. */
+export const SPARE_KEYS = Array.from({ length: 12 }, (_, i) => `F${i + 13}`)
+export const spareAction = (fKey: string): KeyAction => ({ type: 'key', hid: 104 + Number(fKey.slice(1)) - 13, mods: 0 })
 
 /** Short label for a key record, or null when it is the firmware default. */
 export function actionLabel(a: KeyAction): string | null {
@@ -121,6 +135,7 @@ export function actionLabel(a: KeyAction): string | null {
     case 'mouse':
       return PICKER[4].items.find((i) => i.action.type === 'mouse' && i.action.kind === a.kind && i.action.value === a.value)?.label ?? 'Mouse'
     case 'other':
+      if (a.raw[0] === 13) return FUNC_NAMES[funcId(a)] ?? `Func ${funcId(a)}`
       return OTHER_NAMES[a.raw[0]] ?? `[${a.raw.join(',')}]`
   }
 }
